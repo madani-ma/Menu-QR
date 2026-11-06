@@ -1,0 +1,149 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-page: #051F20;
+    --bg-card: #0B2B26;
+    --bg-elevated: #163832;
+    --border-color: #235347;
+    --accent-color: #8EB69B;
+    --text-primary: #DAF1DE;
+
+    /* Design Tokens: Spacing Scale 4/8/12/16/24/32 */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-6: 24px;
+    --space-8: 32px;
+
+    /* Design Tokens: Radius Scale 12/20/28 */
+    --radius-sm: 12px;
+    --radius-md: 20px;
+    --radius-lg: 28px;
+  }
+
+  html, body {
+    background-color: #051F20;
+    color: #DAF1DE;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    overflow-x: hidden;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  .font-heading,
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Outfit', sans-serif;
+    color: #DAF1DE;
+  }
+}
+
+/* Background atmosphere with soft green ambient radial glow from top-left (rendered via lightweight gradient) */
+.app-atmosphere {
+  background-color: #051F20;
+  background-image: 
+    radial-gradient(ellipse 600px 400px at 5% 0%, rgba(142, 182, 155, 0.12), transparent 70%),
+    radial-gradient(ellipse 400px 300px at 95% 85%, rgba(35, 83, 71, 0.15), transparent 70%);
+  background-attachment: scroll;
+  min-height: 100dvh;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+/* App container with maximum mobile polish and no overflow */
+.app-viewport {
+  width: 100%;
+  max-width: 480px;
+  min-height: 100dvh;
+  margin-left: auto;
+  margin-right: auto;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+/* Card styling: uses crisp solid surface matching palette to eliminate GPU blur stutter during scroll */
+.glass-card,
+.card-glass {
+  background-color: #0B2B26;
+  border: 1px solid #235347;
+  border-radius: 20px;
+  box-shadow: 0 4px 18px -2px rgba(0, 0, 0, 0.4);
+}
+
+.glass-card-interactive {
+  background-color: #0B2B26;
+  border: 1px solid #235347;
+  border-radius: 20px;
+  box-shadow: 0 4px 18px -2px rgba(0, 0, 0, 0.4);
+  transition: transform 0.14s ease, border-color 0.14s ease;
+}
+
+.glass-card-interactive:active {
+  transform: scale(0.985);
+}
+
+/* Off-screen list performance booster */
+.content-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 160px;
+}
+
+/* Inputs on elevated background */
+.input-glass {
+  background-color: #163832;
+  border: 1px solid #235347;
+  color: #DAF1DE;
+  border-radius: 12px;
+  min-height: 44px;
+  transition: border-color 0.14s ease;
+}
+
+.input-glass:focus {
+  outline: none;
+  border-color: #8EB69B;
+}
+
+/* Primary Button in new palette (min 44px touch target) */
+.btn-primary {
+  background-color: #8EB69B;
+  color: #051F20;
+  font-weight: 700;
+  min-height: 44px;
+  border-radius: 9999px;
+  transition: background-color 0.14s ease, transform 0.14s ease;
+}
+
+.btn-primary:hover {
+  background-color: #DAF1DE;
+  color: #051F20;
+}
+
+.btn-secondary {
+  background-color: #163832;
+  color: #DAF1DE;
+  border: 1px solid #235347;
+  min-height: 44px;
+  border-radius: 9999px;
+  transition: border-color 0.14s ease, color 0.14s ease;
+}
+
+.btn-secondary:hover {
+  border-color: #8EB69B;
+  color: #8EB69B;
+}
+
+/* Horizontal scrollbar hiding */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

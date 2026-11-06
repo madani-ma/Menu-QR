@@ -1,0 +1,132 @@
+{
+  "entities": {
+    "Restaurant": {
+      "title": "Restaurant",
+      "description": "A restaurant digital menu profile and configuration",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "description": "Firebase Authentication UID of the restaurant owner",
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the restaurant",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "slug": {
+          "type": "string",
+          "description": "Unique URL identifier slug for the restaurant",
+          "pattern": "^[a-z0-9-]+$",
+          "minLength": 2,
+          "maxLength": 60
+        },
+        "whatsapp": {
+          "type": "string",
+          "description": "WhatsApp contact number with country code digits",
+          "maxLength": 30
+        },
+        "offer": {
+          "type": "string",
+          "description": "Promotional or tagline banner text",
+          "maxLength": 200
+        },
+        "address": {
+          "type": "string",
+          "description": "Physical restaurant location address",
+          "maxLength": 250
+        },
+        "hours": {
+          "type": "string",
+          "description": "Opening hours and operational schedule",
+          "maxLength": 150
+        },
+        "instagram": {
+          "type": "string",
+          "description": "Instagram profile link or handle",
+          "maxLength": 200
+        },
+        "facebook": {
+          "type": "string",
+          "description": "Facebook page link",
+          "maxLength": 200
+        },
+        "heroImage": {
+          "type": "string",
+          "description": "Custom hero banner image URL"
+        },
+        "logo": {
+          "type": "string",
+          "description": "Custom restaurant logo image URL"
+        },
+        "story": {
+          "type": "string",
+          "description": "Restaurant story narrative",
+          "maxLength": 2000
+        },
+        "items": {
+          "type": "array",
+          "description": "Array of food menu items with prices, categories, and photos"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Last update timestamp"
+        }
+      },
+      "required": [
+        "ownerUid",
+        "name",
+        "slug",
+        "whatsapp"
+      ]
+    },
+    "RatingReview": {
+      "title": "RatingReview",
+      "description": "Customer star rating and review for a dish or the restaurant",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Anonymous or authenticated user UID",
+          "maxLength": 128
+        },
+        "itemKey": {
+          "type": "string",
+          "description": "Item identifier, either 'restaurant' or dish id",
+          "maxLength": 64
+        },
+        "stars": {
+          "type": "integer",
+          "description": "Rating score between 1 and 5"
+        },
+        "comment": {
+          "type": "string",
+          "description": "Review comment",
+          "maxLength": 200
+        },
+        "name": {
+          "type": "string",
+          "description": "Reviewer display name",
+          "maxLength": 60
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp"
+        }
+      },
+      "required": ["uid", "itemKey", "stars"]
+    }
+  },
+  "firestore": {
+    "/restaurants/{slug}": {
+      "schema": "Restaurant",
+      "description": "Public restaurant digital menus indexed by URL slug"
+    },
+    "/restaurants/{slug}/ratings/{ratingId}": {
+      "schema": "RatingReview",
+      "description": "Ratings and guest feedback per restaurant and dishes"
+    }
+  }
+}
