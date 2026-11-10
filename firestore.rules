@@ -2,74 +2,119 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Default deny all access
+    // Default deny catch-all
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Validation helper for Restaurant documents
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Validation blueprint for Restaurant
     function isValidRestaurant(data) {
-      return data.name is string && data.name.size() > 0 && data.name.size() <= 100
-        && data.slug is string && data.slug.size() >= 2 && data.slug.size() <= 60
-        && data.whatsapp is string && data.whatsapp.size() <= 30
-        && data.ownerUid is string && data.ownerUid.size() <= 128
-        && (!('offer' in data) || (data.offer is string && data.offer.size() <= 200))
-        && (!('address' in data) || (data.address is string && data.address.size() <= 250))
-        && (!('hours' in data) || (data.hours is string && data.hours.size() <= 150))
-        && (!('instagram' in data) || (data.instagram is string && data.instagram.size() <= 200))
-        && (!('facebook' in data) || (data.facebook is string && data.facebook.size() <= 200))
-        && (!('heroImage' in data) || (data.heroImage is string && data.heroImage.size() <= 200000))
-        && (!('logo' in data) || (data.logo is string && data.logo.size() <= 200000))
-        && (!('story' in data) || (data.story is string && data.story.size() <= 2000))
-        && (!('items' in data) || data.items is list);
+      return data.keys().hasAll(['slug', 'ownerUid', 'name', 'items']) &&
+        data.slug is string && isValidId(data.slug) && data.slug.size() >= 2 && data.slug.size() <= 64 &&
+        data.ownerUid is string && data.ownerUid.size() > 0 && data.ownerUid.size() <= 128 &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+        (!('whatsapp' in data) || (data.whatsapp is string && data.whatsapp.size() <= 30)) &&
+        (!('offer' in data) || (data.offer is string && data.offer.size() <= 250)) &&
+        (!('address' in data) || (data.address is string && data.address.size() <= 250)) &&
+        (!('hours' in data) || (data.hours is string && data.hours.size() <= 150)) &&
+        (!('instagram' in data) || (data.instagram is string && data.instagram.size() <= 250)) &&
+        (!('facebook' in data) || (data.facebook is string && data.facebook.size() <= 250)) &&
+        (!('heroImage' in data) || (data.heroImage is string && data.heroImage.size() <= 1500)) &&
+        (!('story' in data) || (data.story is string && data.story.size() <= 1500)) &&
+        data.items is list && data.items.size() <= 150 &&
+        (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 60));
     }
 
-    // Validation helper for Rating documents
-    function isValidRating(data, uid) {
-      return data.uid is string && data.uid == uid
-        && data.stars is int && data.stars >= 1 && data.stars <= 5
-        && data.itemKey is string && data.itemKey.size() <= 64
-        && (!('comment' in data) || (data.comment is string && data.comment.size() <= 200))
-        && (!('name' in data) || (data.name is string && data.name.size() <= 60))
-        && (!('createdAt' in data) || data.createdAt is string);
+    // Validation blueprint for RatingReview
+    function isValidRating(data) {
+      return data.keys().hasAll(['id', 'slug', 'stars', 'uid', 'itemKey']) &&
+        data.id is string && isValidId(data.id) && data.id.size() <= 128 &&
+        data.slug is string && isValidId(data.slug) && data.slug.size() <= 64 &&
+        data.uid is string && data.uid.size() <= 128 &&
+        data.itemKey is string && data.itemKey.size() <= 64 &&
+        data.stars is number && data.stars >= 1 && data.stars <= 5 &&
+        (!('comment' in data) || (data.comment is string && data.comment.size() <= 500)) &&
+        (!('name' in data) || (data.name is string && data.name.size() <= 100)) &&
+        (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 60));
     }
 
-    // Restaurants collection
-    match /restaurants/{slug} {
-      // Anyone can read restaurant info
-      allow read: if true;
+    // Connection validation probe document
+    match /test/{testId} {
+      allow get: if true;
+    }
 
-      // Only authenticated restaurant owner can create
-      allow create: if request.auth != null 
-        && request.resource.data.ownerUid == request.auth.uid
-        && isValidRestaurant(request.resource.data);
+    // Main restaurant documents
+    match /restaurants/{restaurantSlug} {
+      // Diners who scan the QR code should be able to view the menu without logging in
+      allow get: if isValidId(restaurantSlug);
 
-      // Only verified owner can update their own restaurant
-      allow update: if request.auth != null 
-        && resource.data.ownerUid == request.auth.uid
-        && request.resource.data.ownerUid == request.auth.uid
-        && isValidRestaurant(request.resource.data);
+      // Authenticated owners listing only their own restaurants
+      allow list: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
 
-      // Only the owner can delete
-      allow delete: if request.auth != null 
-        && resource.data.ownerUid == request.auth.uid;
+      // Only authenticated owner can create their own menu
+      allow create: if isSignedIn() &&
+        isValidId(restaurantSlug) &&
+        restaurantSlug == incoming().slug &&
+        request.auth.uid == incoming().ownerUid &&
+        isValidRestaurant(incoming());
 
-      // Subcollection: Ratings and Reviews
+      // Only the logged-in owner can edit their own menu, with ownership and slug locked
+      allow update: if isSignedIn() &&
+        isValidId(restaurantSlug) &&
+        request.auth.uid == existing().ownerUid &&
+        incoming().ownerUid == existing().ownerUid &&
+        incoming().slug == existing().slug &&
+        isValidRestaurant(incoming());
+
+      // Only the owner can delete their restaurant
+      allow delete: if isSignedIn() &&
+        isValidId(restaurantSlug) &&
+        request.auth.uid == existing().ownerUid;
+
+      // Subcollection for diner ratings and reviews
       match /ratings/{ratingId} {
-        // Anyone can read ratings
-        allow read: if true;
+        // Diners can view reviews
+        allow get, list: if isValidId(restaurantSlug);
 
-        // Any authenticated user (including anonymous) can create/update their rating
-        allow create, update: if request.auth != null
-          && request.auth.uid == request.resource.data.uid
-          && ratingId.matches('^' + request.auth.uid + '.*')
-          && isValidRating(request.resource.data, request.auth.uid);
+        // Diners can submit ratings for existing restaurants
+        allow create: if isValidId(restaurantSlug) &&
+          isValidId(ratingId) &&
+          exists(/databases/$(database)/documents/restaurants/$(restaurantSlug)) &&
+          incoming().slug == restaurantSlug &&
+          isValidRating(incoming());
 
-        // Delete allowed for the review author OR the restaurant owner
-        allow delete: if request.auth != null && (
-          resource.data.uid == request.auth.uid ||
-          get(/databases/$(database)/documents/restaurants/$(slug)).data.ownerUid == request.auth.uid
-        );
+        // Rating author can update their review
+        allow update: if isValidId(restaurantSlug) &&
+          isValidId(ratingId) &&
+          isValidRating(incoming()) &&
+          incoming().slug == restaurantSlug &&
+          ((isSignedIn() && request.auth.uid == existing().uid) ||
+           (!isSignedIn() && incoming().uid == existing().uid));
+
+        // Rating author or restaurant owner can delete the review
+        allow delete: if isValidId(restaurantSlug) &&
+          isValidId(ratingId) &&
+          (
+            (isSignedIn() && request.auth.uid == existing().uid) ||
+            (isSignedIn() && request.auth.uid == get(/databases/$(database)/documents/restaurants/$(restaurantSlug)).data.ownerUid)
+          );
       }
     }
   }

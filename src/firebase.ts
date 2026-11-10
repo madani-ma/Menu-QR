@@ -5,8 +5,11 @@ import {
   initializeFirestore,
   persistentLocalCache,
   persistentMultipleTabManager,
+  doc,
+  getDocFromServer,
   type Firestore,
 } from 'firebase/firestore';
+import firebaseConfig from '../firebase-applet-config.json';
 
 export interface FirebaseClientConfig {
   apiKey: string;
@@ -15,31 +18,21 @@ export interface FirebaseClientConfig {
   storageBucket?: string;
   messagingSenderId?: string;
   appId: string;
+  firestoreDatabaseId?: string;
   measurementId?: string;
 }
 
-// 1. Check environment variables
-const envConfig: Partial<FirebaseClientConfig> = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '',
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || '',
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || '',
-};
-
-// 2. Check local storage for runtime-configured credentials
-function getStoredConfig(): Partial<FirebaseClientConfig> | null {
+// Clean up any old manual config from previous projects in localStorage
+if (typeof window !== 'undefined') {
   try {
     const raw = localStorage.getItem('menuqr_firebase_config');
     if (raw) {
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      if (parsed.projectId !== firebaseConfig.projectId) {
+        localStorage.removeItem('menuqr_firebase_config');
+      }
     }
-  } catch {
-    // Ignore storage parse issues
-  }
-  return null;
+  } catch {}
 }
 
 export function saveManualFirebaseConfig(config: FirebaseClientConfig) {
@@ -52,16 +45,16 @@ export function clearManualFirebaseConfig() {
   window.location.reload();
 }
 
-const storedConfig = getStoredConfig();
-
-const activeConfig: Partial<FirebaseClientConfig> = {
-  apiKey: envConfig.apiKey || storedConfig?.apiKey || '',
-  authDomain: envConfig.authDomain || storedConfig?.authDomain || '',
-  projectId: envConfig.projectId || storedConfig?.projectId || '',
-  storageBucket: envConfig.storageBucket || storedConfig?.storageBucket || '',
-  messagingSenderId: envConfig.messagingSenderId || storedConfig?.messagingSenderId || '',
-  appId: envConfig.appId || storedConfig?.appId || '',
-  measurementId: envConfig.measurementId || storedConfig?.measurementId || '',
+// Active configuration strictly bound to the user's project: menu-qr-c6fd9
+const activeConfig: FirebaseClientConfig = {
+  apiKey: firebaseConfig.apiKey,
+  authDomain: firebaseConfig.authDomain,
+  projectId: firebaseConfig.projectId,
+  storageBucket: firebaseConfig.storageBucket,
+  messagingSenderId: firebaseConfig.messagingSenderId,
+  appId: firebaseConfig.appId,
+  firestoreDatabaseId: (firebaseConfig as any).firestoreDatabaseId || '',
+  measurementId: (firebaseConfig as any).measurementId || '',
 };
 
 export const isFirebaseConfigured = Boolean(
@@ -71,35 +64,57 @@ export const isFirebaseConfigured = Boolean(
   activeConfig.projectId !== 'your-project-id'
 );
 
-let app: FirebaseApp | null = null;
+let appInstance: FirebaseApp | null = null;
 let authInstance: Auth | null = null;
 let dbInstance: Firestore | null = null;
 
 if (isFirebaseConfigured) {
   try {
-    app = getApps().length > 0 ? getApps()[0] : initializeApp(activeConfig as FirebaseClientConfig);
-    authInstance = getAuth(app);
+    appInstance = getApps().length > 0 ? getApps()[0] : initializeApp(activeConfig);
+    authInstance = getAuth(appInstance);
 
-    // Initialize Firestore with persistent local cache to eliminate repeat network requests
+    // Initialize Firestore with custom databaseId and persistent local cache
+    const dbId = activeConfig.firestoreDatabaseId;
     try {
-      dbInstance = initializeFirestore(app, {
-        localCache: persistentLocalCache({
-          tabManager: persistentMultipleTabManager(),
-        }),
-      });
+      dbInstance = dbId
+        ? initializeFirestore(
+            appInstance,
+            {
+              localCache: persistentLocalCache({
+                tabManager: persistentMultipleTabManager(),
+              }),
+            },
+            dbId
+          )
+        : initializeFirestore(appInstance, {
+            localCache: persistentLocalCache({
+              tabManager: persistentMultipleTabManager(),
+            }),
+          });
     } catch {
       // Fallback if already initialized
-      dbInstance = getFirestore(app);
+      dbInstance = dbId ? getFirestore(appInstance, dbId) : getFirestore(appInstance);
+    }
+
+    // Connection validation test required by Firebase integration skill
+    if (dbInstance) {
+      const probeDoc = doc(dbInstance, 'test', 'connection');
+      getDocFromServer(probeDoc).catch((error) => {
+        if (error instanceof Error && error.message.includes('the client is offline')) {
+          console.error('Please check your Firebase configuration.');
+        }
+      });
     }
   } catch (err) {
     console.error('Failed to initialize Firebase with current configuration:', err);
   }
 }
 
+export const app = appInstance;
 export const auth = authInstance;
 export const db = dbInstance;
 
-// Error handler helper conforming to error handling specifications
+// Standardized error handler conforming strictly to skill specifications
 export enum OperationType {
   CREATE = 'create',
   UPDATE = 'update',
@@ -117,6 +132,12 @@ export interface FirestoreErrorInfo {
     userId?: string | null;
     email?: string | null;
     emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
   };
 }
 
@@ -127,10 +148,16 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
       userId: auth?.currentUser?.uid || null,
       email: auth?.currentUser?.email || null,
       emailVerified: auth?.currentUser?.emailVerified || null,
+      isAnonymous: auth?.currentUser?.isAnonymous || null,
+      tenantId: auth?.currentUser?.tenantId || null,
+      providerInfo: auth?.currentUser?.providerData?.map((provider) => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || [],
     },
     operationType,
     path,
   };
-  console.error('Firestore Error Details:', JSON.stringify(errInfo));
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }

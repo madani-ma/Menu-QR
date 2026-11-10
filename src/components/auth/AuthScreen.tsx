@@ -151,8 +151,19 @@ export function AuthScreen({ onOpenFirebaseConfig }: { onOpenFirebaseConfig: () 
         {error && (
           <div className="p-3.5 rounded-xl bg-[#163832] border border-red-500/40 text-red-200 text-xs flex items-start gap-2.5">
             <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <p>{error}</p>
+            <div className="space-y-1.5 flex-1 min-w-0">
+              <p className="font-medium leading-relaxed break-words">{error}</p>
+              {error.includes('auth/operation-not-allowed') && (
+                <div className="p-2.5 rounded-lg bg-[#0B2B26] border border-[#235347] text-[11px] text-[#DAF1DE]/90 space-y-1">
+                  <p className="font-semibold text-[#8EB69B]">How to fix:</p>
+                  <ol className="list-decimal list-inside space-y-0.5 text-[#DAF1DE]/70">
+                    <li>Go to your Firebase Console: <span className="font-mono text-[#8EB69B]">console.firebase.google.com</span></li>
+                    <li>Select project: <span className="font-mono text-[#8EB69B]">menu-qr-c6fd9</span></li>
+                    <li>Go to <strong>Authentication &rarr; Sign-in method</strong></li>
+                    <li>Click <strong>Email/Password</strong>, switch <strong>Enable</strong> to ON, and save</li>
+                  </ol>
+                </div>
+              )}
               {!isFirebaseConfigured && (
                 <button
                   type="button"
