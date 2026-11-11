@@ -38,6 +38,7 @@ service cloud.firestore {
         (!('facebook' in data) || (data.facebook is string && data.facebook.size() <= 250)) &&
         (!('heroImage' in data) || (data.heroImage is string && data.heroImage.size() <= 1500)) &&
         (!('story' in data) || (data.story is string && data.story.size() <= 1500)) &&
+        (!('currency' in data) || (data.currency is string && data.currency.size() <= 20)) &&
         data.items is list && data.items.size() <= 150 &&
         (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 60));
     }
@@ -83,10 +84,10 @@ service cloud.firestore {
         incoming().slug == existing().slug &&
         isValidRestaurant(incoming());
 
-      // Only the owner can delete their restaurant
+      // Only the owner can delete their restaurant (or clean up if absent)
       allow delete: if isSignedIn() &&
         isValidId(restaurantSlug) &&
-        request.auth.uid == existing().ownerUid;
+        (resource == null || request.auth.uid == resource.data.ownerUid);
 
       // Subcollection for diner ratings and reviews
       match /ratings/{ratingId} {

@@ -18,9 +18,10 @@ interface Props {
   slug: string;
   onClose: () => void;
   onAddToCart: (dish: MenuItem) => void;
+  currency?: string;
 }
 
-export function DishDetailModal({ dish, slug, onClose, onAddToCart }: Props) {
+export function DishDetailModal({ dish, slug, onClose, onAddToCart, currency = 'Rs.' }: Props) {
   const { ensureAnonymousAuth } = useAuth();
   const [justAdded, setJustAdded] = useState(false);
 
@@ -112,7 +113,7 @@ export function DishDetailModal({ dish, slug, onClose, onAddToCart }: Props) {
               </span>
             )}
             <div className="absolute bottom-3 right-3 px-3 py-1 rounded-full bg-[#051F20]/90 backdrop-blur-md border border-[#235347] text-sm font-mono font-bold text-[#8EB69B]">
-              {formatPrice(dish.price)}
+              {formatPrice(dish.price, currency)}
             </div>
           </div>
 
@@ -297,7 +298,7 @@ export function DishDetailModal({ dish, slug, onClose, onAddToCart }: Props) {
             ) : (
               <>
                 <Plus className="w-4 h-4 stroke-[2.5]" />
-                <span>Add to order · {formatPrice(dish.price)}</span>
+                <span>Add to order · {formatPrice(dish.price, currency)}</span>
               </>
             )}
           </button>

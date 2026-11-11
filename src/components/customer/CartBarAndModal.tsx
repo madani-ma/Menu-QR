@@ -18,6 +18,7 @@ interface Props {
   onClose: () => void;
   onUpdateQuantity: (id: string, delta: number) => void;
   onClearCart: () => void;
+  currency?: string;
 }
 
 export function CartBarAndModal({
@@ -29,10 +30,11 @@ export function CartBarAndModal({
   onClose,
   onUpdateQuantity,
   onClearCart,
+  currency = 'Rs.',
 }: Props) {
   const totalCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const totalPrice = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const whatsappUrl = buildWhatsAppOrderUrl(whatsappNumber, restaurantName, cart, totalPrice);
+  const whatsappUrl = buildWhatsAppOrderUrl(whatsappNumber, restaurantName, cart, totalPrice, currency);
 
   // Lock body scroll behind modal
   useEffect(() => {
@@ -61,7 +63,7 @@ export function CartBarAndModal({
                 </div>
                 <div className="truncate text-left">
                   <p className="text-xs font-bold text-[#DAF1DE] truncate">
-                    Order ({totalCount}) · {formatPrice(totalPrice)}
+                    Order ({totalCount}) · {formatPrice(totalPrice, currency)}
                   </p>
                   <p className="text-[10px] text-[#8EB69B]">Review items</p>
                 </div>
@@ -140,7 +142,7 @@ export function CartBarAndModal({
                       <div className="flex-1 min-w-0 space-y-0.5">
                         <p className="font-bold text-xs text-[#DAF1DE] truncate">{item.name}</p>
                         <p className="text-[11px] text-[#8EB69B] font-mono">
-                          {formatPrice(item.price)}
+                          {formatPrice(item.price, currency)}
                         </p>
                       </div>
 
@@ -168,7 +170,7 @@ export function CartBarAndModal({
 
                         {/* Price right-aligned */}
                         <span className="w-14 text-right text-xs font-bold font-mono text-[#DAF1DE]">
-                          {formatPrice(item.price * item.quantity)}
+                          {formatPrice(item.price * item.quantity, currency)}
                         </span>
                       </div>
                     </div>
@@ -181,7 +183,7 @@ export function CartBarAndModal({
                 <div className="p-3.5 rounded-2xl bg-[#163832]/60 border border-[#235347] space-y-1 mt-3">
                   <div className="flex justify-between text-xs text-[#DAF1DE]/70">
                     <span>Subtotal</span>
-                    <span className="font-mono">{formatPrice(totalPrice)}</span>
+                    <span className="font-mono">{formatPrice(totalPrice, currency)}</span>
                   </div>
                   <div className="flex justify-between text-xs text-[#DAF1DE]/70">
                     <span>Tax & billing</span>
@@ -191,7 +193,7 @@ export function CartBarAndModal({
                   <div className="flex justify-between text-sm font-bold text-[#DAF1DE]">
                     <span>Total</span>
                     <span className="font-mono text-base text-[#8EB69B]">
-                      {formatPrice(totalPrice)}
+                      {formatPrice(totalPrice, currency)}
                     </span>
                   </div>
                 </div>
@@ -208,7 +210,7 @@ export function CartBarAndModal({
                   className="w-full min-h-[44px] py-3 rounded-full btn-primary text-xs sm:text-sm font-bold flex items-center justify-center gap-2 shadow-xl active:scale-[0.99] transition-all cursor-pointer"
                 >
                   <MessageCircle className="w-4 h-4 stroke-[2.2]" />
-                  <span>Send order to WhatsApp ({formatPrice(totalPrice)})</span>
+                  <span>Send order to WhatsApp ({formatPrice(totalPrice, currency)})</span>
                 </a>
               </div>
             )}

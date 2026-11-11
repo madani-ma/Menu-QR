@@ -18,9 +18,10 @@ interface Props {
   dishes: MenuItem[];
   onAddToCart: (dish: MenuItem) => void;
   onOpenDishDetail: (dish: MenuItem) => void;
+  currency?: string;
 }
 
-export function FeaturedDishShowcase({ dishes, onAddToCart, onOpenDishDetail }: Props) {
+export function FeaturedDishShowcase({ dishes, onAddToCart, onOpenDishDetail, currency = 'Rs.' }: Props) {
   const prefersReducedMotion = useReducedMotion();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [activeCardTab, setActiveCardTab] = useState<'overview' | 'ingredients'>('overview');
@@ -188,7 +189,7 @@ export function FeaturedDishShowcase({ dishes, onAddToCart, onOpenDishDetail }: 
             <span className="font-extrabold text-[#DAF1DE]">{second}</span>
           </h2>
           <span className="font-mono font-bold text-base text-[#8EB69B] shrink-0">
-            {formatPrice(currentDish.price)}
+            {formatPrice(currentDish.price, currency)}
           </span>
         </div>
 
@@ -205,7 +206,7 @@ export function FeaturedDishShowcase({ dishes, onAddToCart, onOpenDishDetail }: 
             ) : (
               <>
                 <Plus className="w-4 h-4 stroke-[2.5]" />
-                <span>Order ({formatPrice(currentDish.price)})</span>
+                <span>Order ({formatPrice(currentDish.price, currency)})</span>
               </>
             )}
           </button>

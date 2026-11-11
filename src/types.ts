@@ -30,6 +30,7 @@ export interface Restaurant {
   slug: string;
   ownerUid: string;
   name: string;
+  currency?: string; // e.g. "Rs.", "$", "€", "£", "AED", "SAR"
   whatsapp: string; // e.g. "14155552671"
   offer: string;
   address: string;

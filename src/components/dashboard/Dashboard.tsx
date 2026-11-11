@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import QRCode from 'qrcode';
 import {
   type Restaurant,
@@ -24,6 +24,7 @@ import {
   generateSlug,
   formatPrice,
   cleanPhoneNumber,
+  CURRENCY_OPTIONS,
 } from '../../utils/formatters';
 import { compressImage, uploadToCloudinary } from '../../utils/imageUpload';
 import { useAuth } from '../../context/AuthContext';
@@ -53,6 +54,7 @@ import {
   HelpCircle,
   Settings,
   ChevronDown,
+  Coins,
 } from 'lucide-react';
 
 const ITEM_TAGS: ItemTag[] = ['Bestseller', "Chef's pick", 'Popular'];
@@ -76,6 +78,7 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
     slug: '',
     ownerUid: user?.uid || 'temp-owner',
     name: '',
+    currency: 'Rs.',
     whatsapp: '',
     offer: '',
     address: '',
@@ -116,6 +119,7 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
     sweet: number;
     savory: number;
     tangy: number;
+    available: boolean;
   }>({
     name: '',
     description: '',
@@ -129,9 +133,11 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
     sweet: 1,
     savory: 4,
     tangy: 1,
+    available: true,
   });
 
   const [dishCategoryFilter, setDishCategoryFilter] = useState<string>('All');
+  const [dishStatusFilter, setDishStatusFilter] = useState<'All' | 'Active' | 'Paused'>('All');
 
   // QR Code canvas ref
   const qrCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -148,10 +154,19 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
     };
   }, [isDishModalOpen]);
 
-  // Load owner's restaurant
+  // Ref to track if we already loaded data for this user to avoid re-fetching on typing or minor re-renders
+  const loadedOwnerUidRef = useRef<string | null>(null);
+
+  // Load owner's restaurant once per user session
   useEffect(() => {
     async function loadData() {
       if (!user) {
+        setLoading(false);
+        return;
+      }
+
+      // Do not re-fetch if we already loaded this user's data; prevents resetting user input fields
+      if (loadedOwnerUidRef.current === user.uid) {
         setLoading(false);
         return;
       }
@@ -160,28 +175,37 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
       try {
         const existing = await getOwnerRestaurant(user.uid);
         if (existing) {
-          setRestaurant(existing);
+          setRestaurant({
+            ...existing,
+            currency: (!existing.currency || existing.currency === '$') ? 'Rs.' : existing.currency,
+          });
           setOriginalSlug(existing.slug);
           setSlugManuallyEdited(true);
         } else {
-          const defaultName = user.displayName ? `${user.displayName}'s Restaurant` : 'Bistro Noir';
-          const defaultSlug = generateSlug(defaultName);
+          const defaultName = user.displayName ? `${user.displayName}'s Restaurant` : 'My Restaurant';
+          const defaultSlug = generateSlug(defaultName) || `menu-${user.uid.slice(0, 6)}`;
           setRestaurant({
             slug: defaultSlug,
             ownerUid: user.uid,
             name: defaultName,
-            whatsapp: '14155552671',
-            offer: 'Welcome! Complimentary dessert on orders over $40',
-            address: '428 Mercer Street, New York, NY 10013',
+            currency: 'Rs.',
+            whatsapp: '',
+            offer: 'Welcome! Complimentary dessert on orders over Rs. 40',
+            address: '',
             hours: 'Daily: 11:30 AM – 11:00 PM',
-            instagram: 'https://instagram.com/bistronoir',
-            facebook: 'https://facebook.com/bistronoir',
+            instagram: '',
+            facebook: '',
             heroImage: '/images/hero-1.webp',
-            story: 'Handcrafted gastronomy made with organic local ingredients.',
-            items: DEMO_RESTAURANT.items.map((i) => ({ ...i, id: `dish-${Math.random().toString(36).slice(2, 9)}` })),
+            story: '',
+            items: DEMO_RESTAURANT.items.map((i) => ({
+              ...i,
+              id: `dish-${Math.random().toString(36).slice(2, 9)}`,
+              available: true,
+            })),
           });
           setOriginalSlug(defaultSlug);
         }
+        loadedOwnerUidRef.current = user.uid;
       } catch (err) {
         console.error('Failed to load restaurant:', err);
       } finally {
@@ -190,16 +214,16 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
     }
 
     loadData();
-  }, [user]);
+  }, [user?.uid]);
 
   // Subscribe to ratings for Reviews tab
   useEffect(() => {
-    if (!restaurant.slug) return;
-    const unsub = subscribeToRatings(restaurant.slug, (data) => {
+    if (!originalSlug || activeTab !== 'reviews') return;
+    const unsub = subscribeToRatings(originalSlug, (data) => {
       setRatings(data);
     });
     return () => unsub();
-  }, [restaurant.slug]);
+  }, [originalSlug, activeTab]);
 
   // Generate QR code when on QR tab
   const menuUrl = typeof window !== 'undefined'
@@ -227,11 +251,13 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
   }, [activeTab, restaurant.slug, menuUrl]);
 
   const handleNameChange = (name: string) => {
-    const updated: Partial<Restaurant> = { name };
-    if (!slugManuallyEdited || !restaurant.slug) {
-      updated.slug = generateSlug(name);
-    }
-    setRestaurant((prev) => ({ ...prev, ...updated }));
+    setRestaurant((prev) => {
+      const updated: Restaurant = { ...prev, name };
+      if (!slugManuallyEdited || !prev.slug) {
+        updated.slug = generateSlug(name);
+      }
+      return updated;
+    });
   };
 
   const handleHeroPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -256,7 +282,7 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
   const handleSaveSetup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!restaurant.name.trim() || !restaurant.slug.trim()) {
-      setStatusMessage({ type: 'error', text: 'Name and slug are required.' });
+      setStatusMessage({ type: 'error', text: 'Restaurant name and URL slug are required.' });
       return;
     }
 
@@ -265,10 +291,17 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
 
     try {
       const cleanSlug = generateSlug(restaurant.slug);
+      if (!cleanSlug || cleanSlug.length < 2) {
+        setStatusMessage({ type: 'error', text: 'Please enter a valid slug (at least 2 letters or numbers).' });
+        setSaving(false);
+        return;
+      }
+
+      // Check slug uniqueness only if changed
       if (cleanSlug !== originalSlug) {
         const available = await checkSlugAvailable(cleanSlug, user?.uid);
         if (!available) {
-          setStatusMessage({ type: 'error', text: `Slug "${cleanSlug}" is already taken.` });
+          setStatusMessage({ type: 'error', text: `Slug "${cleanSlug}" is already taken by another restaurant.` });
           setSaving(false);
           return;
         }
@@ -283,12 +316,33 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
       await saveRestaurant(updated, originalSlug);
       setRestaurant(updated);
       setOriginalSlug(cleanSlug);
-      setStatusMessage({ type: 'success', text: 'Restaurant settings saved successfully!' });
-      setTimeout(() => setStatusMessage(null), 3000);
+      setStatusMessage({ type: 'success', text: 'Restaurant settings saved to database successfully!' });
+      setTimeout(() => setStatusMessage(null), 3500);
     } catch (err: any) {
-      setStatusMessage({ type: 'error', text: err?.message || 'Save failed.' });
+      console.error('Save setup failed:', err);
+      setStatusMessage({ type: 'error', text: err?.message || 'Save failed. Please check your connection.' });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleToggleDishAvailability = async (id: string) => {
+    const updatedItems = restaurant.items.map((i) =>
+      i.id === id ? { ...i, available: i.available === false } : i
+    );
+    const updated = { ...restaurant, items: updatedItems };
+    setRestaurant(updated);
+
+    try {
+      await saveRestaurant(updated, originalSlug);
+      const targetDish = updatedItems.find((i) => i.id === id);
+      setStatusMessage({
+        type: 'success',
+        text: `"${targetDish?.name}" is now ${targetDish?.available !== false ? 'Available' : 'Paused / Out of stock'}.`,
+      });
+      setTimeout(() => setStatusMessage(null), 2500);
+    } catch (err: any) {
+      setStatusMessage({ type: 'error', text: err?.message || 'Failed to update dish availability.' });
     }
   };
 
@@ -309,6 +363,7 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
       sweet: 1,
       savory: 4,
       tangy: 1,
+      available: true,
     });
     setIsDishModalOpen(true);
   };
@@ -329,6 +384,7 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
       sweet: dish.flavors?.sweet ?? 1,
       savory: dish.flavors?.savory ?? 4,
       tangy: dish.flavors?.tangy ?? 1,
+      available: dish.available !== false,
     });
     setIsDishModalOpen(true);
   };
@@ -382,6 +438,7 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
                 savory: dishForm.savory,
                 tangy: dishForm.tangy,
               },
+              available: dishForm.available,
             }
           : i
       );
@@ -404,7 +461,7 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
         },
         rating: 4.8,
         ratingCount: 1,
-        available: true,
+        available: dishForm.available,
       };
       updatedItems = [...restaurant.items, newDish];
     }
@@ -483,10 +540,18 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
     }
   };
 
-  const displayedDishes =
-    dishCategoryFilter === 'All'
-      ? restaurant.items
-      : restaurant.items.filter((i) => i.category === dishCategoryFilter);
+  const displayedDishes = useMemo(() => {
+    return restaurant.items.filter((i) => {
+      const matchCat = dishCategoryFilter === 'All' || i.category === dishCategoryFilter;
+      const matchStatus =
+        dishStatusFilter === 'All'
+          ? true
+          : dishStatusFilter === 'Active'
+          ? i.available !== false
+          : i.available === false;
+      return matchCat && matchStatus;
+    });
+  }, [restaurant.items, dishCategoryFilter, dishStatusFilter]);
 
   if (loading) {
     return (
@@ -671,26 +736,33 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
                 <input
                   type="text"
                   required
-                  value={restaurant.name}
+                  value={restaurant.name ?? ''}
                   onChange={(e) => handleNameChange(e.target.value)}
                   placeholder="e.g. Bistro Noir"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#163832] border border-[#235347] text-xs text-[#DAF1DE] focus:outline-hidden focus:border-[#8EB69B]"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#163832] border border-[#235347] text-xs text-[#DAF1DE] placeholder:text-[#DAF1DE]/40 focus:outline-hidden focus:border-[#8EB69B] focus:ring-1 focus:ring-[#8EB69B]"
                 />
               </div>
 
               <div className="space-y-1">
                 <label className="block text-xs font-bold text-[#DAF1DE]">URL Slug *</label>
-                <div className="flex items-center rounded-xl bg-[#163832] border border-[#235347] overflow-hidden">
+                <div className="flex items-center rounded-xl bg-[#163832] border border-[#235347] overflow-hidden focus-within:border-[#8EB69B] focus-within:ring-1 focus-within:ring-[#8EB69B]">
                   <span className="pl-3 pr-1 text-xs text-[#DAF1DE]/50 font-mono">/r/</span>
                   <input
                     type="text"
                     required
-                    value={restaurant.slug}
+                    value={restaurant.slug ?? ''}
                     onChange={(e) => {
                       setSlugManuallyEdited(true);
-                      setRestaurant((prev) => ({ ...prev, slug: generateSlug(e.target.value) }));
+                      const live = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '');
+                      setRestaurant((prev) => ({ ...prev, slug: live }));
                     }}
-                    className="w-full pr-3 py-2.5 text-xs text-[#DAF1DE] font-mono focus:outline-hidden bg-transparent"
+                    onBlur={() => {
+                      if (restaurant.slug) {
+                        setRestaurant((prev) => ({ ...prev, slug: generateSlug(prev.slug) }));
+                      }
+                    }}
+                    placeholder="my-bistro"
+                    className="w-full pr-3 py-2.5 text-xs text-[#DAF1DE] font-mono focus:outline-hidden bg-transparent placeholder:text-[#DAF1DE]/30"
                   />
                 </div>
               </div>
@@ -702,10 +774,10 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
                 <input
                   type="text"
                   required
-                  value={restaurant.whatsapp}
+                  value={restaurant.whatsapp ?? ''}
                   onChange={(e) => setRestaurant((prev) => ({ ...prev, whatsapp: e.target.value }))}
                   placeholder="e.g. 14155552671"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#163832] border border-[#235347] text-xs text-[#DAF1DE] font-mono focus:outline-hidden focus:border-[#8EB69B]"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#163832] border border-[#235347] text-xs text-[#DAF1DE] font-mono placeholder:text-[#DAF1DE]/40 focus:outline-hidden focus:border-[#8EB69B] focus:ring-1 focus:ring-[#8EB69B]"
                 />
               </div>
 
@@ -713,10 +785,10 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
                 <label className="block text-xs font-bold text-[#DAF1DE]">Promotional Offer Banner</label>
                 <input
                   type="text"
-                  value={restaurant.offer}
+                  value={restaurant.offer ?? ''}
                   onChange={(e) => setRestaurant((prev) => ({ ...prev, offer: e.target.value }))}
-                  placeholder="e.g. Chef's Autumn Tasting Menu · Complimentary dessert with orders over $45"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#163832] border border-[#235347] text-xs text-[#DAF1DE] focus:outline-hidden focus:border-[#8EB69B]"
+                  placeholder="e.g. Chef's Autumn Tasting Menu · Complimentary dessert with orders over Rs. 45"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#163832] border border-[#235347] text-xs text-[#DAF1DE] placeholder:text-[#DAF1DE]/40 focus:outline-hidden focus:border-[#8EB69B] focus:ring-1 focus:ring-[#8EB69B]"
                 />
               </div>
 
@@ -724,10 +796,10 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
                 <label className="block text-xs font-bold text-[#DAF1DE]">Our Story Narrative</label>
                 <textarea
                   rows={3}
-                  value={restaurant.story || ''}
+                  value={restaurant.story ?? ''}
                   onChange={(e) => setRestaurant((prev) => ({ ...prev, story: e.target.value }))}
                   placeholder="Tell your guests about your heritage, chefs, and sustainable farm sourcing..."
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#163832] border border-[#235347] text-xs text-[#DAF1DE] focus:outline-hidden focus:border-[#8EB69B] resize-none"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#163832] border border-[#235347] text-xs text-[#DAF1DE] placeholder:text-[#DAF1DE]/40 focus:outline-hidden focus:border-[#8EB69B] focus:ring-1 focus:ring-[#8EB69B] resize-none"
                 />
               </div>
 
@@ -735,10 +807,10 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
                 <label className="block text-xs font-bold text-[#DAF1DE]">Physical Address</label>
                 <input
                   type="text"
-                  value={restaurant.address}
+                  value={restaurant.address ?? ''}
                   onChange={(e) => setRestaurant((prev) => ({ ...prev, address: e.target.value }))}
                   placeholder="e.g. 428 Mercer Street, New York, NY 10013"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#163832] border border-[#235347] text-xs text-[#DAF1DE] focus:outline-hidden focus:border-[#8EB69B]"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#163832] border border-[#235347] text-xs text-[#DAF1DE] placeholder:text-[#DAF1DE]/40 focus:outline-hidden focus:border-[#8EB69B] focus:ring-1 focus:ring-[#8EB69B]"
                 />
               </div>
 
@@ -746,10 +818,10 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
                 <label className="block text-xs font-bold text-[#DAF1DE]">Opening Hours</label>
                 <input
                   type="text"
-                  value={restaurant.hours}
+                  value={restaurant.hours ?? ''}
                   onChange={(e) => setRestaurant((prev) => ({ ...prev, hours: e.target.value }))}
                   placeholder="e.g. Daily: 11:30 AM – 11:00 PM"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#163832] border border-[#235347] text-xs text-[#DAF1DE] focus:outline-hidden focus:border-[#8EB69B]"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#163832] border border-[#235347] text-xs text-[#DAF1DE] placeholder:text-[#DAF1DE]/40 focus:outline-hidden focus:border-[#8EB69B] focus:ring-1 focus:ring-[#8EB69B]"
                 />
               </div>
 
@@ -758,21 +830,153 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
                   <label className="block text-xs font-bold text-[#DAF1DE]">Instagram Link</label>
                   <input
                     type="text"
-                    value={restaurant.instagram}
+                    value={restaurant.instagram ?? ''}
                     onChange={(e) => setRestaurant((prev) => ({ ...prev, instagram: e.target.value }))}
                     placeholder="https://instagram.com/..."
-                    className="w-full px-3 py-2 rounded-xl bg-[#163832] border border-[#235347] text-xs text-[#DAF1DE] focus:outline-hidden focus:border-[#8EB69B]"
+                    className="w-full px-3 py-2 rounded-xl bg-[#163832] border border-[#235347] text-xs text-[#DAF1DE] placeholder:text-[#DAF1DE]/40 focus:outline-hidden focus:border-[#8EB69B]"
                   />
                 </div>
                 <div className="space-y-1">
                   <label className="block text-xs font-bold text-[#DAF1DE]">Facebook Link</label>
                   <input
                     type="text"
-                    value={restaurant.facebook}
+                    value={restaurant.facebook ?? ''}
                     onChange={(e) => setRestaurant((prev) => ({ ...prev, facebook: e.target.value }))}
                     placeholder="https://facebook.com/..."
-                    className="w-full px-3 py-2 rounded-xl bg-[#163832] border border-[#235347] text-xs text-[#DAF1DE] focus:outline-hidden focus:border-[#8EB69B]"
+                    className="w-full px-3 py-2 rounded-xl bg-[#163832] border border-[#235347] text-xs text-[#DAF1DE] placeholder:text-[#DAF1DE]/40 focus:outline-hidden focus:border-[#8EB69B]"
                   />
+                </div>
+              </div>
+            </div>
+
+            {/* Money / Currency Section */}
+            <div className="glass-card p-4 space-y-3.5 border border-[#235347]">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-[#163832] border border-[#235347] flex items-center justify-center text-[#8EB69B]">
+                    <Coins className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#8EB69B]">
+                      Money & Currency
+                    </span>
+                    <h3 className="font-heading font-extrabold text-base text-[#DAF1DE]">
+                      Pricing Currency
+                    </h3>
+                  </div>
+                </div>
+                <div className="px-3 py-1 rounded-full bg-[#163832] border border-[#235347] text-xs font-mono font-bold text-[#8EB69B]">
+                  Active: {restaurant.currency || 'Rs.'}
+                </div>
+              </div>
+
+              <p className="text-xs text-[#DAF1DE]/70 leading-relaxed">
+                Choose your menu currency. All dish prices, cart totals, and WhatsApp orders will display in this currency. Default is Pakistani Rupees (Rs.).
+              </p>
+
+              {/* Fast Pick Pills with Rs. (Pakistani Rupees) featured first */}
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-bold text-[#DAF1DE]/80 uppercase tracking-wider">
+                  Select Currency
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { label: '🇵🇰 Pakistani Rupees (Rs.)', symbol: 'Rs.' },
+                    { label: '🇮🇳 Indian Rupee (₹)', symbol: '₹' },
+                    { label: '🇦🇪 UAE Dirham (AED)', symbol: 'AED' },
+                    { label: '🇸🇦 Saudi Riyal (SAR)', symbol: 'SAR' },
+                    { label: '🇬🇧 British Pound (£)', symbol: '£' },
+                    { label: '🇪🇺 Euro (€)', symbol: '€' },
+                  ].map((preset) => {
+                    const isSelected = (restaurant.currency || 'Rs.').trim() === preset.symbol;
+                    return (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => setRestaurant((prev) => ({ ...prev, currency: preset.symbol }))}
+                        className={`min-h-[36px] px-3 py-1.5 rounded-full text-xs font-bold transition-all border cursor-pointer ${
+                          isSelected
+                            ? 'bg-[#8EB69B] text-[#051F20] border-[#8EB69B] shadow-sm ring-1 ring-[#8EB69B]'
+                            : 'bg-[#163832] text-[#DAF1DE]/80 border-[#235347] hover:border-[#8EB69B]'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* All Countries Dropdown Selector */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-[#DAF1DE]">
+                  All Countries & Currencies List
+                </label>
+                <select
+                  value={
+                    CURRENCY_OPTIONS.find((c) => c.symbol === (restaurant.currency || 'Rs.'))?.code || 'custom'
+                  }
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const match = CURRENCY_OPTIONS.find((c) => c.code === val);
+                    if (match) {
+                      setRestaurant((prev) => ({ ...prev, currency: match.symbol }));
+                    }
+                  }}
+                  className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-[#163832] border border-[#235347] text-xs text-[#DAF1DE] focus:outline-hidden focus:border-[#8EB69B] cursor-pointer"
+                >
+                  <optgroup label="🇵🇰 / 🇮🇳 Rupees & South Asia" className="bg-[#0B2B26] text-[#8EB69B] font-bold">
+                    <option value="PKR" className="bg-[#0B2B26] text-[#DAF1DE]">
+                      🇵🇰 Pakistan — Pakistani Rupee (Rs.)
+                    </option>
+                    <option value="INR-RS" className="bg-[#0B2B26] text-[#DAF1DE]">
+                      🇮🇳 India & South Asia — Rupees (Rs.)
+                    </option>
+                    <option value="INR" className="bg-[#0B2B26] text-[#DAF1DE]">
+                      🇮🇳 India — Indian Rupee (₹)
+                    </option>
+                    <option value="NPR" className="bg-[#0B2B26] text-[#DAF1DE]">
+                      🇳🇵 Nepal — Nepalese Rupee (Rs.)
+                    </option>
+                    <option value="LKR" className="bg-[#0B2B26] text-[#DAF1DE]">
+                      🇱🇰 Sri Lanka — Sri Lankan Rupee (Rs.)
+                    </option>
+                    <option value="BDT" className="bg-[#0B2B26] text-[#DAF1DE]">
+                      🇧🇩 Bangladesh — Bangladeshi Taka (৳)
+                    </option>
+                  </optgroup>
+                  <optgroup label="🌍 Global Currencies" className="bg-[#0B2B26] text-[#8EB69B] font-bold">
+                    {CURRENCY_OPTIONS.filter(
+                      (c) => !['PKR', 'INR-RS', 'INR', 'NPR', 'LKR', 'BDT', 'USD'].includes(c.code)
+                    ).map((c) => (
+                      <option key={c.code} value={c.code} className="bg-[#0B2B26] text-[#DAF1DE]">
+                        {c.flag} {c.country} — {c.name} ({c.symbol})
+                      </option>
+                    ))}
+                  </optgroup>
+                  <option value="custom" className="bg-[#0B2B26] text-[#8EB69B]">
+                    ✏️ Custom / Type Your Own Symbol (Rs., R.s, etc.)
+                  </option>
+                </select>
+              </div>
+
+              {/* Custom Symbol / Code Input */}
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-[#DAF1DE]">
+                  Custom Currency Display (e.g. "Rs." or "R.s")
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={restaurant.currency ?? 'Rs.'}
+                    onChange={(e) => setRestaurant((prev) => ({ ...prev, currency: e.target.value }))}
+                    placeholder="e.g. Rs., R.s, ₹, AED"
+                    maxLength={15}
+                    className="flex-1 min-h-[44px] px-3.5 py-2.5 rounded-xl bg-[#163832] border border-[#235347] text-xs text-[#DAF1DE] font-mono font-bold focus:outline-hidden focus:border-[#8EB69B] focus:ring-1 focus:ring-[#8EB69B]"
+                  />
+                  <div className="px-3 py-2.5 rounded-xl bg-[#163832] border border-[#235347] text-xs font-mono font-bold text-[#8EB69B] shrink-0">
+                    Example: {formatPrice(1500, restaurant.currency || 'Rs.')}
+                  </div>
                 </div>
               </div>
             </div>
@@ -813,7 +1017,59 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
               </button>
             </div>
 
-            {/* Filter pills */}
+            {/* Status breakdown & filter cards */}
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setDishStatusFilter('All')}
+                className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                  dishStatusFilter === 'All'
+                    ? 'bg-[#163832] border-[#8EB69B] shadow-sm'
+                    : 'bg-[#0B2B26] border-[#235347] hover:border-[#8EB69B]/50'
+                }`}
+              >
+                <div className="text-[10px] text-[#DAF1DE]/60 font-semibold uppercase tracking-wider">All Dishes</div>
+                <div className="text-base sm:text-lg font-heading font-extrabold text-[#DAF1DE]">
+                  {restaurant.items.length}
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setDishStatusFilter('Active')}
+                className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                  dishStatusFilter === 'Active'
+                    ? 'bg-[#163832] border-[#8EB69B] shadow-sm'
+                    : 'bg-[#0B2B26] border-[#235347] hover:border-[#8EB69B]/50'
+                }`}
+              >
+                <div className="text-[10px] text-[#8EB69B] font-semibold uppercase tracking-wider flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#8EB69B]" /> In Menu
+                </div>
+                <div className="text-base sm:text-lg font-heading font-extrabold text-[#8EB69B]">
+                  {restaurant.items.filter((i) => i.available !== false).length}
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setDishStatusFilter('Paused')}
+                className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                  dishStatusFilter === 'Paused'
+                    ? 'bg-[#163832] border-amber-400 shadow-sm'
+                    : 'bg-[#0B2B26] border-[#235347] hover:border-[#8EB69B]/50'
+                }`}
+              >
+                <div className="text-[10px] text-amber-300/80 font-semibold uppercase tracking-wider flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> Paused
+                </div>
+                <div className="text-base sm:text-lg font-heading font-extrabold text-amber-300">
+                  {restaurant.items.filter((i) => i.available === false).length}
+                </div>
+              </button>
+            </div>
+
+            {/* Category Filter pills */}
             <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
               <button
                 onClick={() => setDishCategoryFilter('All')}
@@ -823,7 +1079,7 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
                     : 'bg-[#163832] text-[#DAF1DE]/80 border border-[#235347]'
                 }`}
               >
-                All ({restaurant.items.length})
+                All Categories ({restaurant.items.length})
               </button>
               {CATEGORIES.map((cat) => {
                 const count = restaurant.items.filter((i) => i.category === cat).length;
@@ -846,53 +1102,89 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
 
             {/* Dishes list */}
             <div className="space-y-3">
-              {displayedDishes.map((dish) => (
-                <div
-                  key={dish.id}
-                  className="glass-card p-3.5 flex items-center gap-3"
-                >
-                  <img
-                    src={getDishImage(dish)}
-                    alt={dish.name}
-                    className="w-16 h-16 rounded-xl object-cover border border-[#235347] shrink-0"
-                  />
-
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <div className="flex items-center gap-1.5">
-                      <h4 className="font-heading font-bold text-sm text-[#DAF1DE] truncate">{dish.name}</h4>
-                      {dish.tag && (
-                        <span className="px-2 py-0.5 rounded-full bg-[#163832] text-[9px] font-bold text-[#8EB69B] border border-[#235347]">
-                          {dish.tag}
+              {displayedDishes.length === 0 ? (
+                <div className="glass-card p-8 text-center space-y-2">
+                  <p className="text-sm font-semibold text-[#DAF1DE]">No dishes match your filter.</p>
+                  <p className="text-xs text-[#DAF1DE]/50">
+                    Switch to "All Dishes" or add a new dish to get started.
+                  </p>
+                </div>
+              ) : (
+                displayedDishes.map((dish: MenuItem) => (
+                  <div
+                    key={dish.id}
+                    className={`glass-card p-3.5 flex items-center gap-3 transition-opacity ${
+                      dish.available === false ? 'opacity-75 bg-[#0B2B26]/80' : ''
+                    }`}
+                  >
+                    <div className="relative shrink-0">
+                      <img
+                        src={getDishImage(dish)}
+                        alt={dish.name}
+                        className="w-16 h-16 rounded-xl object-cover border border-[#235347]"
+                      />
+                      {dish.available === false && (
+                        <span className="absolute inset-0 bg-black/60 rounded-xl flex items-center justify-center text-[9px] font-bold text-amber-300 uppercase tracking-wider">
+                          Paused
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-[#DAF1DE]/60 line-clamp-1">{dish.description}</p>
-                    <div className="flex items-center gap-2 pt-0.5">
-                      <span className="text-xs font-bold text-[#8EB69B] font-mono">
-                        {formatPrice(dish.price)}
-                      </span>
-                      <span className="text-[10px] text-[#DAF1DE]/40">· {dish.category}</span>
+
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <h4 className="font-heading font-bold text-sm text-[#DAF1DE] truncate">{dish.name}</h4>
+                        {dish.tag && (
+                          <span className="px-2 py-0.5 rounded-full bg-[#163832] text-[9px] font-bold text-[#8EB69B] border border-[#235347]">
+                            {dish.tag}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-[#DAF1DE]/60 line-clamp-1">{dish.description}</p>
+                      <div className="flex items-center gap-2 pt-0.5 flex-wrap">
+                        <span className="text-xs font-bold text-[#8EB69B] font-mono">
+                          {formatPrice(dish.price, restaurant.currency || 'Rs.')}
+                        </span>
+                        <span className="text-[10px] text-[#DAF1DE]/40">· {dish.category}</span>
+                        {/* Responsive Keep/Pause Toggle Pill */}
+                        <button
+                          type="button"
+                          onClick={() => handleToggleDishAvailability(dish.id)}
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 transition-all border cursor-pointer ${
+                            dish.available !== false
+                              ? 'bg-[#8EB69B]/15 text-[#8EB69B] border-[#8EB69B]/40 hover:bg-[#8EB69B]/30'
+                              : 'bg-amber-400/10 text-amber-300 border-amber-400/40 hover:bg-amber-400/20'
+                          }`}
+                          title={dish.available !== false ? 'Click to pause / hide from menu' : 'Click to keep / show in menu'}
+                        >
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              dish.available !== false ? 'bg-[#8EB69B]' : 'bg-amber-400'
+                            }`}
+                          />
+                          <span>{dish.available !== false ? 'In Menu' : 'Paused (Hidden)'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => handleOpenEditDish(dish)}
+                        className="w-10 h-10 rounded-full bg-[#163832] border border-[#235347] flex items-center justify-center text-[#DAF1DE] hover:border-[#8EB69B] active:scale-95 transition-all cursor-pointer"
+                        aria-label={`Edit ${dish.name}`}
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteDish(dish.id)}
+                        className="w-10 h-10 rounded-full bg-[#163832] border border-[#235347] flex items-center justify-center text-red-300 hover:border-red-400 active:scale-95 transition-all cursor-pointer"
+                        aria-label={`Delete ${dish.name}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      onClick={() => handleOpenEditDish(dish)}
-                      className="w-11 h-11 rounded-full bg-[#163832] border border-[#235347] flex items-center justify-center text-[#DAF1DE] hover:border-[#8EB69B] active:scale-95 transition-all cursor-pointer"
-                      aria-label={`Edit ${dish.name}`}
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteDish(dish.id)}
-                      className="w-11 h-11 rounded-full bg-[#163832] border border-[#235347] flex items-center justify-center text-red-300 hover:border-red-400 active:scale-95 transition-all cursor-pointer"
-                      aria-label={`Delete ${dish.name}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         )}
@@ -1152,30 +1444,94 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              {/* Menu Availability / Status Option (Keep in Menu vs Pause / Remove) */}
+              <div className="space-y-1.5 p-3 rounded-xl bg-[#163832] border border-[#235347]">
+                <label className="block text-xs font-bold text-[#DAF1DE]">Menu Status & Availability</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDishForm((prev) => ({ ...prev, available: true }))}
+                    className={`min-h-[42px] px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all border cursor-pointer ${
+                      dishForm.available
+                        ? 'bg-[#8EB69B] text-[#051F20] border-[#8EB69B] shadow-md ring-1 ring-[#8EB69B]'
+                        : 'bg-[#0B2B26] text-[#DAF1DE]/70 border-[#235347] hover:border-[#8EB69B]'
+                    }`}
+                  >
+                    <Check className="w-4 h-4 stroke-[3]" />
+                    <span>Keep in Menu</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDishForm((prev) => ({ ...prev, available: false }))}
+                    className={`min-h-[42px] px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all border cursor-pointer ${
+                      !dishForm.available
+                        ? 'bg-amber-400 text-[#051F20] border-amber-400 shadow-md ring-1 ring-amber-400'
+                        : 'bg-[#0B2B26] text-[#DAF1DE]/70 border-[#235347] hover:border-[#8EB69B]'
+                    }`}
+                  >
+                    <span>Pause (Hidden)</span>
+                  </button>
+                </div>
+                <p className="text-[10px] text-[#DAF1DE]/60 pt-0.5">
+                  {dishForm.available
+                    ? '✓ Active: Guests will see and order this dish from the digital menu.'
+                    : '⏸ Paused: Dish is kept in your recipe book, but temporarily hidden from diners.'}
+                </p>
+              </div>
+
+              {/* Price & Category Selection */}
+              <div className="space-y-3">
                 <div className="space-y-1">
-                  <label className="block text-xs font-semibold text-[#DAF1DE]">Price ($) *</label>
+                  <label className="block text-xs font-bold text-[#DAF1DE]">
+                    Price ({(!restaurant.currency || restaurant.currency === '$') ? 'Rs.' : restaurant.currency}) *
+                  </label>
                   <input
                     type="number"
                     step="0.01"
                     min="0"
                     required
-                    value={dishForm.price}
+                    value={dishForm.price ?? ''}
                     onChange={(e) => setDishForm((prev) => ({ ...prev, price: e.target.value }))}
-                    placeholder="24.00"
+                    placeholder="1500"
                     className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-[#163832] border border-[#235347] text-xs text-[#DAF1DE] font-mono font-bold focus:outline-hidden focus:border-[#8EB69B]"
                   />
                 </div>
 
-                <div className="space-y-1">
-                  <label className="block text-xs font-semibold text-[#DAF1DE]">Category *</label>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-[#DAF1DE]">Category *</label>
+                    <span className="text-[10px] text-[#8EB69B] font-semibold">Selected: {dishForm.category}</span>
+                  </div>
+
+                  {/* High-visibility Category Pill Options */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                    {CATEGORIES.map((cat) => {
+                      const isSelected = dishForm.category === cat;
+                      return (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => setDishForm((prev) => ({ ...prev, category: cat }))}
+                          className={`min-h-[40px] px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center justify-center transition-all border cursor-pointer ${
+                            isSelected
+                              ? 'bg-[#8EB69B] text-[#051F20] border-[#8EB69B] shadow-sm ring-1 ring-[#8EB69B]'
+                              : 'bg-[#163832] text-[#DAF1DE]/70 border-[#235347] hover:border-[#8EB69B]'
+                          }`}
+                        >
+                          {cat}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Styled fallback dropdown menu */}
                   <select
                     value={dishForm.category}
                     onChange={(e) => setDishForm((prev) => ({ ...prev, category: e.target.value as MenuCategory }))}
-                    className="w-full min-h-[44px] px-3 py-2 rounded-xl bg-[#163832] border border-[#235347] text-xs text-[#DAF1DE] focus:outline-hidden focus:border-[#8EB69B]"
+                    className="w-full min-h-[40px] px-3 py-2 rounded-xl bg-[#163832] border border-[#235347] text-xs text-[#DAF1DE] focus:outline-hidden focus:border-[#8EB69B] cursor-pointer"
                   >
                     {CATEGORIES.map((cat) => (
-                      <option key={cat} value={cat}>
+                      <option key={cat} value={cat} className="bg-[#0B2B26] text-[#DAF1DE] py-1">
                         {cat}
                       </option>
                     ))}
@@ -1267,10 +1623,10 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
                   <button
                     type="button"
                     onClick={() => setDishForm((prev) => ({ ...prev, tag: '' }))}
-                    className={`min-h-[36px] px-3 py-1 rounded-full text-xs font-medium cursor-pointer border ${
+                    className={`min-h-[38px] px-3.5 py-1.5 rounded-full text-xs font-bold cursor-pointer transition-all border ${
                       !dishForm.tag
-                        ? 'bg-[#8EB69B] text-[#051F20] border-[#8EB69B]'
-                        : 'border-[#235347] text-[#DAF1DE]/70 hover:border-[#8EB69B]'
+                        ? 'bg-[#8EB69B] text-[#051F20] border-[#8EB69B] shadow-sm ring-1 ring-[#8EB69B]'
+                        : 'bg-[#163832] border-[#235347] text-[#DAF1DE]/70 hover:border-[#8EB69B]'
                     }`}
                   >
                     None
@@ -1280,10 +1636,10 @@ export function Dashboard({ onOpenFirebaseConfig }: Props) {
                       key={t}
                       type="button"
                       onClick={() => setDishForm((prev) => ({ ...prev, tag: t }))}
-                      className={`min-h-[36px] px-3 py-1 rounded-full text-xs font-medium cursor-pointer border ${
+                      className={`min-h-[38px] px-3.5 py-1.5 rounded-full text-xs font-bold cursor-pointer transition-all border ${
                         dishForm.tag === t
-                          ? 'bg-[#8EB69B] text-[#051F20] border-[#8EB69B]'
-                          : 'border-[#235347] text-[#DAF1DE]/70 hover:border-[#8EB69B]'
+                          ? 'bg-[#8EB69B] text-[#051F20] border-[#8EB69B] shadow-sm ring-1 ring-[#8EB69B]'
+                          : 'bg-[#163832] border-[#235347] text-[#DAF1DE]/70 hover:border-[#8EB69B]'
                       }`}
                     >
                       {t}

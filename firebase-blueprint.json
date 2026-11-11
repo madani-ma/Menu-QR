@@ -64,6 +64,11 @@
           "description": "Background story and culinary philosophy",
           "maxLength": 1000
         },
+        "currency": {
+          "type": "string",
+          "description": "Selected currency symbol or code (e.g. Rs., $, €, £, AED)",
+          "maxLength": 20
+        },
         "items": {
           "type": "array",
           "description": "List of dishes and drinks available on the menu"

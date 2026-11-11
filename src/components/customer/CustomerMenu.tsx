@@ -56,11 +56,13 @@ const MemoizedDishCard = React.memo(function DishCard({
   inCartCount,
   onOpenDetail,
   onAddToCart,
+  currency = 'Rs.',
 }: {
   dish: MenuItem;
   inCartCount: number;
   onOpenDetail: (dish: MenuItem) => void;
   onAddToCart: (dish: MenuItem) => void;
+  currency?: string;
 }) {
   return (
     <div
@@ -93,7 +95,7 @@ const MemoizedDishCard = React.memo(function DishCard({
               {dish.name}
             </h4>
             <span className="font-mono font-bold text-sm text-[#8EB69B] shrink-0">
-              {formatPrice(dish.price)}
+              {formatPrice(dish.price, currency)}
             </span>
           </div>
           <p className="text-xs text-[#DAF1DE]/70 line-clamp-2 leading-relaxed">
@@ -141,10 +143,12 @@ const MemoizedSignatureCard = React.memo(function SignatureCard({
   dish,
   onOpenDetail,
   onAddToCart,
+  currency = 'Rs.',
 }: {
   dish: MenuItem;
   onOpenDetail: (dish: MenuItem) => void;
   onAddToCart: (dish: MenuItem) => void;
+  currency?: string;
 }) {
   return (
     <div
@@ -180,7 +184,7 @@ const MemoizedSignatureCard = React.memo(function SignatureCard({
 
         <div className="pt-1.5 flex items-center justify-between border-t border-[#235347]/50">
           <span className="font-mono font-bold text-xs text-[#8EB69B]">
-            {formatPrice(dish.price)}
+            {formatPrice(dish.price, currency)}
           </span>
           <button
             onClick={(e) => {
@@ -317,7 +321,10 @@ export function CustomerMenu({
 
   const clearCart = useCallback(() => setCart([]), []);
 
-  const items = useMemo(() => restaurant?.items || [], [restaurant?.items]);
+  const items = useMemo(
+    () => (restaurant?.items || []).filter((i) => i.available !== false),
+    [restaurant?.items]
+  );
 
   // Memoized search and category filtering
   const searchedItems = useMemo(() => {
@@ -433,6 +440,7 @@ export function CustomerMenu({
               dishes={specialItems.length > 0 ? specialItems : items}
               onAddToCart={addToCart}
               onOpenDishDetail={handleOpenDetail}
+              currency={restaurant.currency || 'Rs.'}
             />
 
             {/* 2. Signature Collection Cards */}
@@ -461,6 +469,7 @@ export function CustomerMenu({
                     dish={dish}
                     onOpenDetail={handleOpenDetail}
                     onAddToCart={addToCart}
+                    currency={restaurant.currency || 'Rs.'}
                   />
                 ))}
               </div>
@@ -637,6 +646,7 @@ export function CustomerMenu({
                     inCartCount={cartQuantityMap.get(dish.id) || 0}
                     onOpenDetail={handleOpenDetail}
                     onAddToCart={addToCart}
+                    currency={restaurant.currency || 'Rs.'}
                   />
                 ))
               )}
@@ -689,7 +699,7 @@ export function CustomerMenu({
                         {dish.name}
                       </h4>
                       <span className="font-mono font-bold text-base text-[#8EB69B]">
-                        {formatPrice(dish.price)}
+                        {formatPrice(dish.price, restaurant.currency || 'Rs.')}
                       </span>
                     </div>
                     <p className="text-xs text-[#DAF1DE]/70 leading-relaxed">
@@ -887,6 +897,7 @@ export function CustomerMenu({
         onClose={() => setIsCartOpen(false)}
         onUpdateQuantity={updateQuantity}
         onClearCart={clearCart}
+        currency={restaurant.currency || 'Rs.'}
       />
 
       {/* Dish Detail Sheet Modal (Lazy loaded when opened) */}
@@ -897,6 +908,7 @@ export function CustomerMenu({
             slug={restaurant.slug}
             onClose={() => setDetailDish(null)}
             onAddToCart={addToCart}
+            currency={restaurant.currency || 'Rs.'}
           />
         </Suspense>
       )}

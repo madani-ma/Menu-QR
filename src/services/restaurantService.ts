@@ -10,15 +10,16 @@ import {
   onSnapshot,
   type Unsubscribe,
 } from 'firebase/firestore';
-import { db, isFirebaseConfigured, handleFirestoreError, OperationType } from '../firebase';
-import type { Restaurant } from '../types';
+import { db, auth, isFirebaseConfigured, handleFirestoreError, OperationType } from '../firebase';
+import type { Restaurant, MenuItem, ItemTag } from '../types';
 
 export const DEMO_RESTAURANT: Restaurant = {
   slug: 'demo-bistro',
   ownerUid: 'demo-owner',
   name: 'Bistro Noir',
+  currency: 'Rs.',
   whatsapp: '14155552671',
-  offer: 'Chef’s Autumn Tasting Menu · Complimentary artisanal dessert on orders over $45',
+  offer: 'Chef’s Autumn Tasting Menu · Complimentary artisanal dessert on orders over Rs. 45',
   address: '428 Mercer Street, New York, NY 10013',
   hours: 'Daily: 11:30 AM – 11:00 PM',
   instagram: 'https://instagram.com/bistronoir',
@@ -247,22 +248,80 @@ export async function saveRestaurant(
     throw new Error('Firebase is not configured. Please check your setup.');
   }
 
+  const effectiveOwnerUid = (restaurant.ownerUid && restaurant.ownerUid !== 'temp-owner')
+    ? restaurant.ownerUid
+    : auth?.currentUser?.uid;
+
+  if (!effectiveOwnerUid) {
+    throw new Error('You must be logged in as a restaurant owner to save changes.');
+  }
+
   const newSlug = restaurant.slug.toLowerCase().trim();
+  if (!newSlug || newSlug.length < 2) {
+    throw new Error('Restaurant URL slug must be at least 2 characters long.');
+  }
+
   const path = `restaurants/${newSlug}`;
 
+  // Sanitize all dishes: strip undefined and ensure required schema fields
+  const sanitizedItems: MenuItem[] = (restaurant.items || []).map((item, idx) => ({
+    id: item.id || `dish-${Date.now()}-${idx}`,
+    name: (item.name || '').trim(),
+    description: (item.description || '').trim(),
+    price: typeof item.price === 'number' ? item.price : parseFloat(String(item.price)) || 0,
+    category: item.category || 'Main',
+    tag: (item.tag || '') as ItemTag,
+    image: item.image || '',
+    ingredients: Array.isArray(item.ingredients) ? item.ingredients.filter(Boolean) : [],
+    flavors: {
+      spicy: Number(item.flavors?.spicy ?? 2),
+      sweet: Number(item.flavors?.sweet ?? 1),
+      savory: Number(item.flavors?.savory ?? 4),
+      tangy: Number(item.flavors?.tangy ?? 1),
+    },
+    prepTime: item.prepTime || '15-20 mins',
+    likesCount: typeof item.likesCount === 'number' ? item.likesCount : 0,
+    rating: typeof item.rating === 'number' ? item.rating : 4.8,
+    ratingCount: typeof item.ratingCount === 'number' ? item.ratingCount : 1,
+    available: item.available !== false,
+  }));
+
+  const dataToSave: Restaurant = {
+    slug: newSlug,
+    ownerUid: effectiveOwnerUid,
+    name: (restaurant.name || '').trim(),
+    currency: (!restaurant.currency || restaurant.currency === '$') ? 'Rs.' : restaurant.currency.trim(),
+    whatsapp: (restaurant.whatsapp || '').trim(),
+    offer: (restaurant.offer || '').trim(),
+    address: (restaurant.address || '').trim(),
+    hours: (restaurant.hours || '').trim(),
+    instagram: (restaurant.instagram || '').trim(),
+    facebook: (restaurant.facebook || '').trim(),
+    heroImage: restaurant.heroImage || '/images/hero-1.webp',
+    story: (restaurant.story || '').trim(),
+    items: sanitizedItems,
+    updatedAt: new Date().toISOString(),
+  };
+
   try {
-    if (previousSlug && previousSlug.toLowerCase().trim() !== newSlug) {
-      const oldDocRef = doc(db, 'restaurants', previousSlug.toLowerCase().trim());
-      await deleteDoc(oldDocRef);
+    // If slug was changed, safely check if the previous slug actually existed in Firestore and belongs to us
+    if (
+      previousSlug &&
+      previousSlug.toLowerCase().trim() !== newSlug &&
+      previousSlug.toLowerCase().trim() !== 'demo-bistro'
+    ) {
+      try {
+        const oldDocRef = doc(db, 'restaurants', previousSlug.toLowerCase().trim());
+        const oldSnap = await getDoc(oldDocRef);
+        if (oldSnap.exists() && oldSnap.data()?.ownerUid === effectiveOwnerUid) {
+          await deleteDoc(oldDocRef);
+        }
+      } catch (delErr) {
+        console.warn('Could not clean up previous slug document:', delErr);
+      }
     }
 
     const docRef = doc(db, 'restaurants', newSlug);
-    const dataToSave: Restaurant = {
-      ...restaurant,
-      slug: newSlug,
-      updatedAt: new Date().toISOString(),
-    };
-
     await setDoc(docRef, dataToSave, { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
